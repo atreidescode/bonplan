@@ -1,6 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import * as cheerio from "cheerio";
-import { categorizeDeal, HardwareCategory } from "../services/categorizer";
+import { categorizeDeal, EXCLUDE_REGEX, HardwareCategory } from "../services/categorizer";
 
 export interface NormalizedDeal {
   externalId: string;
@@ -17,13 +17,20 @@ export interface NormalizedDeal {
   temperature?: number;
 }
 
+const DEALABS_HARDWARE_GROUPS: Array<{ slug: string; defaultCategory: HardwareCategory }> = [
+  { slug: "cartes-graphiques", defaultCategory: "GPU" },
+  { slug: "ssd", defaultCategory: "SSD" },
+  { slug: "processeurs", defaultCategory: "CPU" },
+  { slug: "cartes-meres", defaultCategory: "MOTHERBOARD" },
+  { slug: "boitiers", defaultCategory: "CASE" },
+  { slug: "ecrans", defaultCategory: "MONITOR" },
+  { slug: "ordinateurs-de-bureau", defaultCategory: "PC_DESKTOP" },
+];
+
 const HARDWARE_TARGET_QUERIES = [
-  "carte graphique",
   "carte graphique rtx",
   "carte graphique rx",
   "ssd nvme",
-  "ssd 1to",
-  "ssd 2to",
   "barrette ram",
   "ddr5 ram",
   "processeur ryzen",
@@ -32,8 +39,6 @@ const HARDWARE_TARGET_QUERIES = [
   "ventirad",
   "watercooling",
   "alimentation pc",
-  "ecran pc gamer",
-  "pc fixe gamer",
   "pc portable gamer",
 ];
 
@@ -59,13 +64,34 @@ export async function fetchDealabsHardwareDeals(): Promise<NormalizedDeal[]> {
     console.error("[Dealabs] Error fetching RSS:", err.message);
   }
 
-  // 2. Fetch targeted Hardware searches in parallel batches of 5 for fast serverless execution
-  const batchSize = 5;
+  // 2. Fetch Official Dealabs Hardware Groups in parallel
+  const groupResults = await Promise.all(
+    DEALABS_HARDWARE_GROUPS.map((g) =>
+      fetchDealabsPage(
+        `https://www.dealabs.com/groupe/${g.slug}?hide_expired=1`,
+        g.defaultCategory
+      ).catch((err) => {
+        console.error(`[Dealabs] Error fetching group "${g.slug}":`, err.message);
+        return [] as NormalizedDeal[];
+      })
+    )
+  );
+
+  for (const list of groupResults) {
+    for (const d of list) {
+      dealsMap.set(d.externalId, d);
+    }
+  }
+
+  // 3. Fetch targeted Hardware searches in parallel batches of 6
+  const batchSize = 6;
   for (let i = 0; i < HARDWARE_TARGET_QUERIES.length; i += batchSize) {
     const batch = HARDWARE_TARGET_QUERIES.slice(i, i + batchSize);
     const results = await Promise.all(
       batch.map((query) =>
-        fetchDealabsSearchByQuery(query).catch((err) => {
+        fetchDealabsPage(
+          `https://www.dealabs.com/search?q=${encodeURIComponent(query)}&hide_expired=1`
+        ).catch((err) => {
           console.error(`[Dealabs] Error querying "${query}":`, err.message);
           return [] as NormalizedDeal[];
         })
@@ -115,7 +141,9 @@ async function fetchDealabsRSS(): Promise<NormalizedDeal[]> {
     const link = item.link || item.guid || "";
 
     const idMatch = link.match(/-(\d+)(?:\?|$)/);
-    const externalId = idMatch ? `dealabs-${idMatch[1]}` : `dealabs-${Buffer.from(link).toString("base64").slice(0, 16)}`;
+    const externalId = idMatch
+      ? `dealabs-${idMatch[1]}`
+      : `dealabs-${Buffer.from(link).toString("base64").slice(0, 16)}`;
 
     const merchantData = item["pepper:merchant"] || {};
     const merchantName = merchantData["@_name"] || "Marchand inconnu";
@@ -156,8 +184,10 @@ async function fetchDealabsRSS(): Promise<NormalizedDeal[]> {
   return deals;
 }
 
-async function fetchDealabsSearchByQuery(query: string): Promise<NormalizedDeal[]> {
-  const url = `https://www.dealabs.com/search?q=${encodeURIComponent(query)}&hide_expired=1`;
+async function fetchDealabsPage(
+  url: string,
+  fallbackCategory?: HardwareCategory
+): Promise<NormalizedDeal[]> {
   const res = await fetch(url, {
     headers: {
       "User-Agent":
@@ -181,7 +211,7 @@ async function fetchDealabsSearchByQuery(query: string): Promise<NormalizedDeal[
       const t = parsed?.props?.thread;
       if (!t || !t.threadId) return;
 
-      // ❌ IGNORE EXPIRED DEALS COMPLETELY!
+      // Ignore expired deals
       if (t.isExpired === true || t.status === "Expired") {
         return;
       }
@@ -208,7 +238,10 @@ async function fetchDealabsSearchByQuery(query: string): Promise<NormalizedDeal[
       }
 
       const catResult = categorizeDeal(title);
-      if (catResult.isHardware) {
+      const isExcluded = EXCLUDE_REGEX.test(title);
+
+      if (!isExcluded && (catResult.isHardware || (fallbackCategory && price > 0))) {
+        const finalCategory = catResult.isHardware ? catResult.category : fallbackCategory!;
         deals.push({
           externalId: `dealabs-${t.threadId}`,
           title,
@@ -220,7 +253,7 @@ async function fetchDealabsSearchByQuery(query: string): Promise<NormalizedDeal[
           source: "dealabs",
           url: dealUrl,
           imageUrl,
-          category: catResult.category,
+          category: finalCategory,
           temperature: Math.round(t.temperature || 0),
         });
       }

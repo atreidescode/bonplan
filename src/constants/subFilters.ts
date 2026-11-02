@@ -1,4 +1,5 @@
 import { HardwareCategory, Deal } from "@/types/deal";
+import { analyzeHardwareDeal } from "@/lib/services/hardwareAnalyzer";
 
 export interface SubFilterOption {
   id: string;
@@ -7,8 +8,38 @@ export interface SubFilterOption {
 }
 
 export const SUB_FILTERS: Partial<Record<HardwareCategory, SubFilterOption[]>> = {
+  ALL: [
+    { id: "ALL", label: "Tous les deals", filter: () => true },
+    {
+      id: "TARGET_PRICE",
+      label: "🎯 Prix Cibles & Pépites",
+      filter: (d) =>
+        analyzeHardwareDeal(d).isTargetPriceHit ||
+        (typeof d.temperature === "number" && d.temperature >= 250) ||
+        (typeof d.discountPercentage === "number" && d.discountPercentage >= 20),
+    },
+    {
+      id: "HOT_250",
+      label: "🔥 Deals Brûlants (≥ 250°)",
+      filter: (d) => typeof d.temperature === "number" && d.temperature >= 250,
+    },
+    {
+      id: "BIG_DISCOUNT",
+      label: "💥 Réductions ≥ 20%",
+      filter: (d) => typeof d.discountPercentage === "number" && d.discountPercentage >= 20,
+    },
+  ],
+
   SSD: [
     { id: "ALL", label: "Tous les SSD", filter: () => true },
+    {
+      id: "BEST_RATIO",
+      label: "🔥 Meilleur €/To",
+      filter: (d) => {
+        const res = analyzeHardwareDeal(d);
+        return typeof res.unitMetricValue === "number" && res.unitMetricValue <= 85;
+      },
+    },
     {
       id: "500GB",
       label: "500 Go / 512 Go",

@@ -1,3 +1,5 @@
+import { analyzeHardwareDeal } from "./hardwareAnalyzer";
+
 const CATEGORY_COLORS: Record<string, number> = {
   GPU: 0x10b981, // Emerald Green (Nvidia / Radeon)
   CPU: 0x3b82f6, // Blue (Intel / AMD)
@@ -19,7 +21,7 @@ const PING_EVERYONE_CATEGORIES = new Set(["CPU", "GPU", "SSD", "MOTHERBOARD"]);
 const CATEGORY_LABELS_FR: Record<string, string> = {
   CPU: "Processeur",
   GPU: "Carte Graphique",
-  SSD: "SSD",
+  SSD: "SSD NVMe / SATA",
   MOTHERBOARD: "Carte Mère",
   RAM: "Mémoire RAM",
   PSU: "Alimentation",
@@ -36,11 +38,14 @@ export async function sendDiscordDealAlert(deal: {
   price: number;
   originalPrice?: number | null;
   discountPercentage?: number | null;
+  temperature?: number | null;
   merchant: string;
   source: string;
   url: string;
   imageUrl?: string | null;
   category: string;
+  isPriceDrop?: boolean;
+  previousPrice?: number;
 }): Promise<boolean> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
 
@@ -50,6 +55,7 @@ export async function sendDiscordDealAlert(deal: {
   }
 
   const color = CATEGORY_COLORS[deal.category] || 0x6d3c52;
+  const categoryLabel = CATEGORY_LABELS_FR[deal.category] || deal.category;
 
   const formattedPrice = deal.price > 0 ? `${deal.price.toFixed(2)} €` : "Voir l'offre";
   const oldPrice =
@@ -59,43 +65,90 @@ export async function sendDiscordDealAlert(deal: {
 
   const discountVal =
     typeof deal.discountPercentage === "number" ? Math.round(deal.discountPercentage) : 0;
+  const tempVal = typeof deal.temperature === "number" ? Math.round(deal.temperature) : 0;
 
   const discountText = discountVal > 0 ? ` (-${discountVal}%)` : "";
 
-  // Ping @everyone if category is CPU / GPU / SSD / MOTHERBOARD and discount >= 20%
-  const shouldPingEveryone =
-    PING_EVERYONE_CATEGORIES.has(deal.category) && discountVal >= 20;
+  const analysis = analyzeHardwareDeal(deal);
 
-  const categoryLabel = CATEGORY_LABELS_FR[deal.category] || deal.category;
+  // Trigger @everyone on CPU / GPU / SSD / MOTHERBOARD if:
+  // 1) Discount >= 20% OR
+  // 2) Dealabs Temperature >= 250° OR
+  // 3) Target Price hit (e.g. 7800X3D < 340€, SSD < 62€/To, etc.)
+  const isCoreComponent = PING_EVERYONE_CATEGORIES.has(deal.category);
+  const hasHighDiscount = discountVal >= 20;
+  const hasHotTemp = tempVal >= 250;
+  const hasTargetPrice = analysis.isTargetPriceHit;
 
-  const contentMessage = shouldPingEveryone
-    ? `@everyone 🚨 **GROSSE PROMO (-${discountVal}%) sur ${categoryLabel} !**`
-    : undefined;
+  const shouldPingEveryone = isCoreComponent && (hasHighDiscount || hasHotTemp || hasTargetPrice);
+
+  let contentMessage: string | undefined = undefined;
+  if (shouldPingEveryone) {
+    const reasons: string[] = [];
+    if (hasHighDiscount) reasons.push(`-${discountVal}%`);
+    if (hasHotTemp) reasons.push(`🔥 ${tempVal}° sur Dealabs`);
+    if (hasTargetPrice && analysis.targetPriceReason) reasons.push(`🎯 ${analysis.targetPriceReason}`);
+
+    contentMessage = `@everyone 🚨 **ALERTE PÉPITE ${categoryLabel.toUpperCase()} (${reasons.join(" • ")}) !**`;
+  } else if (deal.isPriceDrop && deal.previousPrice) {
+    const diff = (deal.previousPrice - deal.price).toFixed(2);
+    contentMessage = `📉 **NOUVELLE BAISSE DE PRIX (-${diff} €)** sur **${categoryLabel}** !`;
+  }
+
+  const fields: Array<{ name: string; value: string; inline: boolean }> = [
+    {
+      name: "💰 Prix",
+      value: `${formattedPrice} ${oldPrice} ${discountText}`.trim(),
+      inline: true,
+    },
+    {
+      name: "🛒 Marchand",
+      value: deal.merchant || "Non spécifié",
+      inline: true,
+    },
+    {
+      name: "🏷️ Catégorie",
+      value: categoryLabel,
+      inline: true,
+    },
+  ];
+
+  if (analysis.unitMetricLabel) {
+    fields.push({
+      name: "⚡ Ratio Qualité/Prix",
+      value: analysis.isGreatUnitMetric
+        ? `🔥 **${analysis.unitMetricLabel}** (Excellent)`
+        : analysis.unitMetricLabel,
+      inline: true,
+    });
+  }
+
+  if (tempVal !== 0) {
+    fields.push({
+      name: "🌡️ Température",
+      value: tempVal >= 250 ? `🔥 **${tempVal}°** (Brûlant)` : `${tempVal}°`,
+      inline: true,
+    });
+  }
+
+  if (deal.isPriceDrop && deal.previousPrice) {
+    fields.push({
+      name: "📉 Évolution",
+      value: `Ancien prix : ~~${deal.previousPrice.toFixed(2)} €~~ → **${deal.price.toFixed(2)} €**`,
+      inline: false,
+    });
+  }
 
   const embed = {
     title: `[${deal.category}] ${deal.title}`.slice(0, 250),
     url: deal.url,
     color,
     description: shouldPingEveryone
-      ? `💥 **alerte -${discountVal}% détectée sur ${categoryLabel} !**`
-      : `🔥 **Nouveau bon plan détecté !**`,
-    fields: [
-      {
-        name: "💰 Prix",
-        value: `${formattedPrice} ${oldPrice} ${discountText}`.trim(),
-        inline: true,
-      },
-      {
-        name: "🛒 Marchand",
-        value: deal.merchant || "Non spécifié",
-        inline: true,
-      },
-      {
-        name: "🏷️ Catégorie",
-        value: categoryLabel,
-        inline: true,
-      },
-    ],
+      ? `💥 **Pépite détectée sur ${categoryLabel} !**`
+      : deal.isPriceDrop
+        ? `📉 **Ce produit vient de baisser de prix !**`
+        : `🔥 **Nouveau bon plan détecté !**`,
+    fields,
     image: deal.imageUrl ? { url: deal.imageUrl } : undefined,
     footer: {
       text: `BonPlan Hardware • Source: ${deal.source.toUpperCase()}`,
@@ -135,7 +188,6 @@ export async function sendDiscordDealAlert(deal: {
       console.log(
         `[Discord] Alert sent${shouldPingEveryone ? " (WITH @everyone)" : ""} for: "${deal.title}"`
       );
-      // Small pause between webhooks to stay under Discord rate limits
       await new Promise((resolve) => setTimeout(resolve, 350));
       return true;
     }

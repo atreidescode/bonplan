@@ -20,9 +20,9 @@ export interface CategorizationResult {
   confidence: number;
 }
 
-// 1. Non-hardware exclusions (including cashback promos / trade-in vouchers)
-const EXCLUDE_REGEX =
-  /\b(serveur\s*nas|tablette|ipad|tab\s*p\d+|smartphone|t[eé]l[eé]phone|iphone|galaxy\s*s\d+|chaise\s*bureau|fauteuil\s*gamer|table\s*basse|aspirateur|lego|jouet|trottinette|velo|machine\s*a\s*laver|v[eê]tement|chaussure|sneakers|lessive|couches|nintendo\s*switch|playstation\s*5|ps5\s*slim|xbox\s*series|station\s*d['’]alimentation|panneau\s*solaire|bon\s*d['’]achat|reprise\s*de\s*votre|offerts?\s*sur\s*steam)\b/i;
+// 1. Non-hardware exclusions (including cashback promos / trade-in vouchers / fitness monitors)
+export const EXCLUDE_REGEX =
+  /\b(serveur\s*nas|disque\s*dur\s*nas|tablette|ipad|tab\s*p\d+|smartphone|t[eé]l[eé]phone|iphone|galaxy\s*s\d+|chaise\s*bureau|fauteuil\s*gamer|table\s*basse|aspirateur|lego|jouet|trottinette|velo|machine\s*a\s*laver|v[eê]tement|chaussure|sneakers|lessive|couches|nintendo\s*switch|playstation\s*5|ps5\s*slim|xbox\s*series|console\s*portable|station\s*d['’]alimentation|panneau\s*solaire|bon\s*d['’]achat|reprise\s*de\s*votre|offerts?\s*sur\s*steam|fr[eé]quence\s*cardiaque|garmin|babyphone|[eé]cran\s*de\s*projection|vid[eé]oprojecteur)\b/i;
 
 // 2. Specific item categories that must take precedence over "PC Gamer" or component mentions
 const MONITOR_REGEX =
@@ -42,7 +42,7 @@ const PC_DESKTOP_REGEX =
   /\b(pc\s*fixe|pc\s*de\s*bureau|unit[eé]\s*centrale|mini\s*pc|tour\s*pc|ordinateur\s*de\s*bureau|ordinateur\s*fixe|pccom|cyberpower|csl\s*(?:speed|sprint)|pc\s+[a-z0-9]+\s+gaming|\bpc\s*gamer\b)\b/i;
 
 const COOLING_REGEX =
-  /\b(watercooling|aio\s*\d{3}|ventirad|refroidissement|ventilateur\s*pc|noctua|thermalright|peerless\s*assassin|nzxt\s*kraken|liquid\s*freezer)\b/i;
+  /\b(watercooling|aio\s*\d{3}|ventirad|refroidissement|ventilateur\s*pc|dissipateur\s*(?:thermique|ssd|m\.?2)|lot\s*de\s*\d+\s*ventilateurs|noctua|thermalright|peerless\s*assassin|nzxt\s*kraken|liquid\s*freezer)\b/i;
 
 const PSU_REGEX =
   /\b(alimentation\s*pc|alim\s*pc|psu|80\s*plus\s*(?:bronze|gold|platinum|titanium)|(?:650|750|850|1000|1200)\s*w\s*(?:modulaire|atx)?|atx\s*3\.[01])\b/i;

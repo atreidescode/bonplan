@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 import { fetchDealabsHardwareDeals, NormalizedDeal } from "../scrapers/dealabs";
 import { fetchTopAchatDeals } from "../scrapers/topachat";
+import { fetchMemoryPCDeals } from "../scrapers/memorypc";
 import { sendDiscordDealAlert } from "./discord";
 
 export interface SyncReport {
@@ -11,6 +12,8 @@ export interface SyncReport {
   errors: string[];
 }
 
+const CORE_PING_CATEGORIES = new Set(["CPU", "GPU", "SSD", "MOTHERBOARD"]);
+
 export async function processNormalizedDeals(deals: NormalizedDeal[]): Promise<SyncReport> {
   let newDealsCount = 0;
   let alertsSentCount = 0;
@@ -18,13 +21,11 @@ export async function processNormalizedDeals(deals: NormalizedDeal[]): Promise<S
 
   for (const deal of deals) {
     try {
-      // Check if deal already exists
       const existing = await prisma.deal.findUnique({
         where: { externalId: deal.externalId },
       });
 
       if (!existing) {
-        // Create deal in DB
         const created = await prisma.deal.create({
           data: {
             externalId: deal.externalId,
@@ -45,7 +46,6 @@ export async function processNormalizedDeals(deals: NormalizedDeal[]): Promise<S
 
         newDealsCount++;
 
-        // Send Discord notification
         const alertSent = await sendDiscordDealAlert(created);
         if (alertSent) {
           await prisma.deal.update({
@@ -53,6 +53,52 @@ export async function processNormalizedDeals(deals: NormalizedDeal[]): Promise<S
             data: { discordAlertSent: true },
           });
           alertsSentCount++;
+        }
+      } else {
+        // Deal already exists: check for a significant price drop (>= 5€ and >= 3%)
+        const isPriceDrop =
+          deal.price > 0 &&
+          existing.price > 0 &&
+          deal.price <= existing.price - 5 &&
+          (existing.price - deal.price) / existing.price >= 0.03;
+
+        // Check if deal just crossed the >= 250° viral threshold on a core component
+        const prevTemp = existing.temperature ?? 0;
+        const newTemp = deal.temperature ?? prevTemp;
+        const crossedHotThreshold =
+          CORE_PING_CATEGORIES.has(existing.category) &&
+          prevTemp < 250 &&
+          newTemp >= 250 &&
+          (existing.discountPercentage ?? 0) < 20;
+
+        if (isPriceDrop || newTemp !== prevTemp) {
+          const baseOrig = existing.originalPrice || existing.price;
+          const updatedDiscount =
+            isPriceDrop && baseOrig > deal.price
+              ? Math.round(((baseOrig - deal.price) / baseOrig) * 100)
+              : existing.discountPercentage;
+
+          const updated = await prisma.deal.update({
+            where: { id: existing.id },
+            data: {
+              price: isPriceDrop ? deal.price : existing.price,
+              originalPrice: isPriceDrop ? baseOrig : existing.originalPrice,
+              discountPercentage: updatedDiscount,
+              temperature: newTemp,
+            },
+          });
+
+          if (isPriceDrop) {
+            const sent = await sendDiscordDealAlert({
+              ...updated,
+              isPriceDrop: true,
+              previousPrice: existing.price,
+            });
+            if (sent) alertsSentCount++;
+          } else if (crossedHotThreshold) {
+            const sent = await sendDiscordDealAlert(updated);
+            if (sent) alertsSentCount++;
+          }
         }
       }
     } catch (err: any) {
@@ -101,6 +147,23 @@ export async function runIngestion(): Promise<SyncReport[]> {
     console.error("❌ [Ingestion] Error with TopAchat:", err.message);
     reports.push({
       source: "topachat",
+      totalFound: 0,
+      newDeals: 0,
+      alertsSent: 0,
+      errors: [err.message],
+    });
+  }
+
+  try {
+    console.log("🔍 [Ingestion] Fetching MemoryPC deals...");
+    const memoryPcDeals = await fetchMemoryPCDeals();
+    console.log(`✅ [Ingestion] Found ${memoryPcDeals.length} hardware deals on MemoryPC.`);
+    const memoryPcReport = await processNormalizedDeals(memoryPcDeals);
+    reports.push(memoryPcReport);
+  } catch (err: any) {
+    console.error("❌ [Ingestion] Error with MemoryPC:", err.message);
+    reports.push({
+      source: "memorypc",
       totalFound: 0,
       newDeals: 0,
       alertsSent: 0,
