@@ -1,5 +1,3 @@
-import { Deal } from "@prisma/client";
-
 const CATEGORY_COLORS: Record<string, number> = {
   GPU: 0x10b981, // Emerald Green (Nvidia / Radeon)
   CPU: 0x3b82f6, // Blue (Intel / AMD)
@@ -10,8 +8,27 @@ const CATEGORY_COLORS: Record<string, number> = {
   COOLING: 0x06b6d4, // Cyan
   CASE: 0x64748b, // Slate
   MONITOR: 0xf97316, // Orange
+  PC_DESKTOP: 0x8b5cf6, // Violet
+  LAPTOP_GAMING: 0xe11d48, // Rose
   PERIPHERAL: 0x84cc16, // Lime
   OTHER: 0x94a3b8, // Light Gray
+};
+
+const PING_EVERYONE_CATEGORIES = new Set(["CPU", "GPU", "SSD", "MOTHERBOARD"]);
+
+const CATEGORY_LABELS_FR: Record<string, string> = {
+  CPU: "Processeur",
+  GPU: "Carte Graphique",
+  SSD: "SSD",
+  MOTHERBOARD: "Carte Mère",
+  RAM: "Mémoire RAM",
+  PSU: "Alimentation",
+  COOLING: "Refroidissement",
+  CASE: "Boîtier PC",
+  MONITOR: "Écran PC",
+  PC_DESKTOP: "PC Fixe Gamer",
+  LAPTOP_GAMING: "PC Portable Gamer",
+  PERIPHERAL: "Périphérique",
 };
 
 export async function sendDiscordDealAlert(deal: {
@@ -32,7 +49,7 @@ export async function sendDiscordDealAlert(deal: {
     return false;
   }
 
-  const color = CATEGORY_COLORS[deal.category] || 0x2563eb;
+  const color = CATEGORY_COLORS[deal.category] || 0x6d3c52;
 
   const formattedPrice = deal.price > 0 ? `${deal.price.toFixed(2)} €` : "Voir l'offre";
   const oldPrice =
@@ -40,16 +57,28 @@ export async function sendDiscordDealAlert(deal: {
       ? `~~${deal.originalPrice.toFixed(2)} €~~`
       : "";
 
-  const discountText =
-    deal.discountPercentage && deal.discountPercentage > 0
-      ? ` (-${Math.round(deal.discountPercentage)}%)`
-      : "";
+  const discountVal =
+    typeof deal.discountPercentage === "number" ? Math.round(deal.discountPercentage) : 0;
+
+  const discountText = discountVal > 0 ? ` (-${discountVal}%)` : "";
+
+  // Ping @everyone if category is CPU / GPU / SSD / MOTHERBOARD and discount >= 20%
+  const shouldPingEveryone =
+    PING_EVERYONE_CATEGORIES.has(deal.category) && discountVal >= 20;
+
+  const categoryLabel = CATEGORY_LABELS_FR[deal.category] || deal.category;
+
+  const contentMessage = shouldPingEveryone
+    ? `@everyone 🚨 **GROSSE PROMO (-${discountVal}%) sur ${categoryLabel} !**`
+    : undefined;
 
   const embed = {
     title: `[${deal.category}] ${deal.title}`.slice(0, 250),
     url: deal.url,
     color,
-    description: `🔥 **Nouveau bon plan détecté !**`,
+    description: shouldPingEveryone
+      ? `💥 **alerte -${discountVal}% détectée sur ${categoryLabel} !**`
+      : `🔥 **Nouveau bon plan détecté !**`,
     fields: [
       {
         name: "💰 Prix",
@@ -63,7 +92,7 @@ export async function sendDiscordDealAlert(deal: {
       },
       {
         name: "🏷️ Catégorie",
-        value: deal.category,
+        value: categoryLabel,
         inline: true,
       },
     ],
@@ -84,6 +113,8 @@ export async function sendDiscordDealAlert(deal: {
         body: JSON.stringify({
           username: "BonPlan Hardware Bot",
           avatar_url: "https://images.unsplash.com/photo-1587202372775-e229f172b9d7?w=128&q=80",
+          content: contentMessage,
+          allowed_mentions: shouldPingEveryone ? { parse: ["everyone"] } : { parse: [] },
           embeds: [embed],
         }),
       });
@@ -101,7 +132,9 @@ export async function sendDiscordDealAlert(deal: {
         return false;
       }
 
-      console.log(`[Discord] Alert sent successfully for: "${deal.title}"`);
+      console.log(
+        `[Discord] Alert sent${shouldPingEveryone ? " (WITH @everyone)" : ""} for: "${deal.title}"`
+      );
       // Small pause between webhooks to stay under Discord rate limits
       await new Promise((resolve) => setTimeout(resolve, 350));
       return true;

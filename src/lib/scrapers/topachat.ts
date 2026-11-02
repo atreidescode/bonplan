@@ -2,6 +2,15 @@ import * as cheerio from "cheerio";
 import { categorizeDeal } from "../services/categorizer";
 import { NormalizedDeal } from "./dealabs";
 
+function extractDiscountFromText(text: string): number | undefined {
+  const match = text.match(/-\s*(\d{1,2})\s*%/);
+  if (match) {
+    const val = parseInt(match[1], 10);
+    if (val > 0 && val <= 95) return val;
+  }
+  return undefined;
+}
+
 export async function fetchTopAchatDeals(): Promise<NormalizedDeal[]> {
   const url = "https://www.topachat.com/pages/ventes-flash.php";
 
@@ -62,7 +71,7 @@ export async function fetchTopAchatDeals(): Promise<NormalizedDeal[]> {
       const discountPercentage =
         originalPrice && originalPrice > currentPrice
           ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)
-          : undefined;
+          : extractDiscountFromText(`${promoHeader} ${fullTitle}`);
 
       // Categorize
       const categoryResult = categorizeDeal(fullTitle, `${promoHeader} ${detailsText}`);
@@ -82,7 +91,7 @@ export async function fetchTopAchatDeals(): Promise<NormalizedDeal[]> {
           category: categoryResult.category,
         });
       }
-    } catch (err) {
+    } catch {
       // Skip problematic item
     }
   });

@@ -53,6 +53,18 @@ export function useDeals() {
 
   useEffect(() => {
     fetchDeals();
+
+    // Auto-sync silently every 15 minutes while a browser tab is open
+    const interval = setInterval(() => {
+      fetch("/api/sync", { method: "POST" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) fetchDeals();
+        })
+        .catch(() => {});
+    }, 15 * 60 * 1000);
+
+    return () => clearInterval(interval);
   }, [fetchDeals]);
 
   const merchants = useMemo(() => {

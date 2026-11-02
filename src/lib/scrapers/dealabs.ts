@@ -37,6 +37,15 @@ const HARDWARE_TARGET_QUERIES = [
   "pc portable gamer",
 ];
 
+function extractDiscountFromText(text: string): number | undefined {
+  const match = text.match(/-\s*(\d{1,2})\s*%/);
+  if (match) {
+    const val = parseInt(match[1], 10);
+    if (val > 0 && val <= 95) return val;
+  }
+  return undefined;
+}
+
 export async function fetchDealabsHardwareDeals(): Promise<NormalizedDeal[]> {
   const dealsMap = new Map<string, NormalizedDeal>();
 
@@ -50,17 +59,25 @@ export async function fetchDealabsHardwareDeals(): Promise<NormalizedDeal[]> {
     console.error("[Dealabs] Error fetching RSS:", err.message);
   }
 
-  // 2. Fetch targeted Hardware searches with hide_expired=1
-  for (const query of HARDWARE_TARGET_QUERIES) {
-    try {
-      const searchDeals = await fetchDealabsSearchByQuery(query);
+  // 2. Fetch targeted Hardware searches in parallel batches of 5 for fast serverless execution
+  const batchSize = 5;
+  for (let i = 0; i < HARDWARE_TARGET_QUERIES.length; i += batchSize) {
+    const batch = HARDWARE_TARGET_QUERIES.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map((query) =>
+        fetchDealabsSearchByQuery(query).catch((err) => {
+          console.error(`[Dealabs] Error querying "${query}":`, err.message);
+          return [] as NormalizedDeal[];
+        })
+      )
+    );
+
+    for (const searchDeals of results) {
       for (const d of searchDeals) {
         if (!dealsMap.has(d.externalId)) {
           dealsMap.set(d.externalId, d);
         }
       }
-    } catch (err: any) {
-      console.error(`[Dealabs] Error querying "${query}":`, err.message);
     }
   }
 
@@ -117,6 +134,7 @@ async function fetchDealabsRSS(): Promise<NormalizedDeal[]> {
     }
 
     const cleanDescription = description.replace(/<[^>]*>?/gm, "").trim();
+    const discountPercentage = extractDiscountFromText(title);
 
     const categoryResult = categorizeDeal(title, cleanDescription);
     if (categoryResult.isHardware) {
@@ -125,6 +143,7 @@ async function fetchDealabsRSS(): Promise<NormalizedDeal[]> {
         title: title.trim(),
         description: cleanDescription.slice(0, 500),
         price,
+        discountPercentage,
         merchant: merchantName,
         source: "dealabs",
         url: link,
@@ -178,7 +197,7 @@ async function fetchDealabsSearchByQuery(query: string): Promise<NormalizedDeal[
       const discountPercentage =
         originalPrice && originalPrice > price
           ? Math.round(((originalPrice - price) / originalPrice) * 100)
-          : undefined;
+          : extractDiscountFromText(title);
 
       const merchantName = t.merchant?.merchantName || "Marchand inconnu";
       const dealUrl = `https://www.dealabs.com/bons-plans/${t.titleSlug || "deal"}-${t.threadId}`;

@@ -10,6 +10,8 @@ jobs:
   sync-deals:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Sync API
+      - name: Ping BonPlan Sync API
         run: |
-          curl -s -X POST "https://${{ secrets.VERCEL_PROJECT_URL || 'bonplan.vercel.app' }}/api/sync"
+          echo "Triggering deal sync on https://bonplan-six.vercel.app/api/sync..."
+          RESPONSE=$(curl -s -L -X POST "https://bonplan-six.vercel.app/api/sync" --max-time 60)
+          echo "API Response: $RESPONSE"
