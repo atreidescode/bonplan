@@ -1,26 +1,63 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --sakura-bg: #1B0C1A;
+  --sakura-card: #2D222F;
+  --sakura-card-hover: #382A3A;
+  --sakura-border: #4B2138;
+  --sakura-border-light: #612D4B;
+  --sakura-primary: #6D3C52;
+  --sakura-primary-hover: #854763;
+  --sakura-muted: #A88D99;
+  --sakura-cream: #FADCD5;
+  --sakura-cream-subtle: #E8BFB6;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+@theme {
+  --color-sakura-bg: var(--sakura-bg);
+  --color-sakura-card: var(--sakura-card);
+  --color-sakura-card-hover: var(--sakura-card-hover);
+  --color-sakura-border: var(--sakura-border);
+  --color-sakura-border-light: var(--sakura-border-light);
+  --color-sakura-primary: var(--sakura-primary);
+  --color-sakura-primary-hover: var(--sakura-primary-hover);
+  --color-sakura-muted: var(--sakura-muted);
+  --color-sakura-cream: var(--sakura-cream);
+  --color-sakura-cream-subtle: var(--sakura-cream-subtle);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #1B0C1A;
+  color: #FADCD5;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1B0C1A;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4B2138;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6D3C52;
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

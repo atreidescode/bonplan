@@ -1,0 +1,15 @@
+name: Hardware Deals 30-Min Sync
+
+on:
+  schedule:
+    # Runs every 30 minutes 24/7
+    - cron: "*/30 * * * *"
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  sync-deals:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Sync API
+        run: |
+          curl -s -X POST "https://${{ secrets.VERCEL_PROJECT_URL || 'bonplan.vercel.app' }}/api/sync"
