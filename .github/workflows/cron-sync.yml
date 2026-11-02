@@ -5,6 +5,11 @@ on:
     # Runs every 30 minutes 24/7
     - cron: "*/30 * * * *"
   workflow_dispatch: # Allows manual trigger from GitHub UI
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/cron-sync.yml"
 
 jobs:
   sync-deals:
